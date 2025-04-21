@@ -872,8 +872,8 @@ def indice_conv(features: torch.Tensor,
 
     has_bias = bias is not None
     has_act = act_type != tv.gemm.Activation.None_
-    if has_bias or has_act:
-        assert features.is_cuda, "cpu don't support act and bias"
+    if has_act:
+        assert features.is_cuda, "cpu don't support act"
     if not ALL_WEIGHT_IS_KRSC:
         kv_dim = 0
         is_KC_not_CK = not FILTER_HWIO
@@ -984,6 +984,9 @@ def indice_conv(features: torch.Tensor,
             else:
                 torch.mm(inp_buffer[:nhot], filters_cur, out=out_buffer[:nhot])
             SpconvOps.scatter_add_cpu(c, out_buffer_tv, out_indices)
+
+        if has_bias:
+            out_features += bias
 
         return out_features
 
