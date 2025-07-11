@@ -84,7 +84,7 @@ class GemmTunerSimple:
             hint: 
         """
         ...
-    def run_with_tuned_result(self, profile_res, a: Tensor, b: Tensor, c: Tensor, trans_a: bool, trans_b: bool, trans_c: bool, arch: Tuple[int, int], stream_int: int, shuffle_type: int, a_inds: Tensor, b_inds: Tensor, c_inds: Tensor, hint: int = 0, alpha: float = 1.0, beta: float = 0.0, workspace: Tensor =  Tensor(), timer: CUDAKernelTimer =  CUDAKernelTimer(False), force_nvrtc: bool = False, bias: Tensor =  Tensor(), act_alpha: float = 0.0, act_beta: float = 0.0, act_type: Activation =  Activation.None_) -> None: 
+    def run_with_tuned_result(self, profile_res, a: Tensor, b: Tensor, c: Tensor, trans_a: bool, trans_b: bool, trans_c: bool, arch: Tuple[int, int], stream_int: int, shuffle_type: int, a_inds: Tensor, b_inds: Tensor, c_inds: Tensor, hint: int = 0, alpha: float = 1.0, beta: float = 0.0) -> None:
         """
         Args:
             profile_res: 
