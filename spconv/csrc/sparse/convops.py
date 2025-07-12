@@ -867,18 +867,13 @@ class GemmTunerSimple(pccm.ParameterizedClass):
         code.arg("alpha", "float", "1.0")
         code.arg("beta", "float", "0.0")
 
-        if not CUMM_CPU_ONLY_BUILD:
-            code.arg("workspace", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
-            code.arg("timer", "tv::CUDAKernelTimer", "tv::CUDAKernelTimer(false)",
-                     "cumm.tensorview.CUDAKernelTimer = CUDAKernelTimer(False)")
+        code.arg("workspace", "tv::Tensor")
+        code.arg("timer", "tv::CUDAKernelTimer")
         code.arg("force_nvrtc", f"bool", "false")
-        if not CUMM_CPU_ONLY_BUILD:
-            code.arg("bias", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
-            code.arg("act_alpha", f"float", "0.0")
-            code.arg("act_beta", f"float", "0.0")
-            code.arg("act_type", f"tv::gemm::Activation", "tv::gemm::Activation::kNone", "cumm.tensorview.gemm.Activation = Activation.None_")
+        code.arg("bias", "tv::Tensor")
+        code.arg("act_alpha", f"float")
+        code.arg("act_beta", f"float")
+        code.arg("act_type", f"tv::gemm::Activation")
 
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
@@ -1378,24 +1373,16 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         code.arg("beta", "float", "0.0")
 
         code.arg("stream_int", f"std::uintptr_t", "0")
-        if not CUMM_CPU_ONLY_BUILD:
-            code.arg("workspace", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
+        code.arg("workspace", "tv::Tensor")
         code.arg("verbose", f"bool", "false")
-        if not CUMM_CPU_ONLY_BUILD:
-            code.arg("timer", "tv::CUDAKernelTimer", "tv::CUDAKernelTimer(false)",
-                     "cumm.tensorview.CUDAKernelTimer = CUDAKernelTimer(false)")
+        code.arg("timer", "tv::CUDAKernelTimer")
         code.arg("force_nvrtc", f"bool", "false")
-        if not CUMM_CPU_ONLY_BUILD:
-            code.arg("bias", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
-            code.arg("act_alpha", f"float", "0.0")
-            code.arg("act_beta", f"float", "0.0")
-            code.arg("act_type", f"tv::gemm::Activation", "tv::gemm::Activation::kNone", "cumm.tensorview.gemm.Activation = Activation.None_")
-            code.arg("scale", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
-            code.arg("output_add", "tv::Tensor", "tv::Tensor()",
-                     "cumm.tensorview.Tensor = Tensor()")
+        code.arg("bias", "tv::Tensor")
+        code.arg("act_alpha", f"float")
+        code.arg("act_beta", f"float")
+        code.arg("act_type", f"tv::gemm::Activation")
+        code.arg("scale", "tv::Tensor")
+        code.arg("output_add", "tv::Tensor")
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
             return code
