@@ -67,11 +67,15 @@ if project_is_installed(PACKAGE_NAME) and project_is_editable(
         InferenceOps(),
         PointCloudCompress(),
     ]
-    pccm.builder.build_pybind(cus,
-                              PACKAGE_ROOT / "core_cc",
-                              namespace_root=PACKAGE_ROOT,
-                              load_library=False,
-                              verbose=True)
+    pccm.builder.build_pybind(
+        cus,
+        PACKAGE_ROOT / "core_cc",
+        namespace_root=PACKAGE_ROOT,
+        load_library=False,
+        verbose=True,
+        # suppress unused-variable warnings from generated CUDA kernels
+        nvcc_args=["--diag-suppress=177"],
+    )
 
     # cus_dev: List[pccm.Class] = [
     # ]
