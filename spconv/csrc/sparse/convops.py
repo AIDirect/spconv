@@ -867,13 +867,16 @@ class GemmTunerSimple(pccm.ParameterizedClass):
         code.arg("alpha", "float", "1.0")
         code.arg("beta", "float", "0.0")
 
-        code.arg("workspace", "tv::Tensor")
-        code.arg("timer", "tv::CUDAKernelTimer")
+        code.arg("workspace", "tv::Tensor", "tv::Tensor()",
+                 "cumm.tensorview.Tensor = Tensor()")
+        code.arg("timer", "tv::CUDAKernelTimer", "tv::CUDAKernelTimer(false)",
+                 "cumm.tensorview.CUDAKernelTimer = CUDAKernelTimer(False)")
         code.arg("force_nvrtc", f"bool", "false")
-        code.arg("bias", "tv::Tensor")
+        code.arg("bias", "tv::Tensor", "tv::Tensor()",
+                 "cumm.tensorview.Tensor = Tensor()")
         code.arg("act_alpha", f"float", "0.0")
         code.arg("act_beta", f"float", "0.0")
-        code.arg("act_type", "tv::gemm::Activation")
+        code.arg("act_type", f"tv::gemm::Activation", "tv::gemm::Activation::kNone", "cumm.tensorview.gemm.Activation = Activation.None_")
 
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
