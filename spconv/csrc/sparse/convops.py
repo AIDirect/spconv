@@ -863,17 +863,16 @@ class GemmTunerSimple(pccm.ParameterizedClass):
 
         code.arg("shuffle_type", "int")
         code.arg("a_inds, b_inds, c_inds", "tv::Tensor")
-        code.arg("hint", "int", f"{AlgoHint.NoHint.value}")
-        code.arg("alpha", "float", "1.0")
-        code.arg("beta", "float", "0.0")
-
         code.arg("workspace", "tv::Tensor")
         code.arg("timer", "tv::CUDAKernelTimer")
-        code.arg("force_nvrtc", f"bool", "false")
         code.arg("bias", "tv::Tensor")
         code.arg("act_alpha", f"float")
         code.arg("act_beta", f"float")
         code.arg("act_type", f"tv::gemm::Activation")
+        code.arg("hint", "int", f"{AlgoHint.NoHint.value}")
+        code.arg("alpha", "float", "1.0")
+        code.arg("beta", "float", "0.0")
+        code.arg("force_nvrtc", f"bool", "false")
 
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
@@ -1367,22 +1366,21 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         code.arg("mask, mask_argsort, mask_output, indices", "tv::Tensor")
 
         code.arg("reverse_mask", "bool")
-        code.arg("mask_filter", "uint32_t", "0xffffffff")
-        code.arg("mask_width", "int", "-1")
-        code.arg("alpha", "float", "1.0")
-        code.arg("beta", "float", "0.0")
-
-        code.arg("stream_int", f"std::uintptr_t", "0")
         code.arg("workspace", "tv::Tensor")
-        code.arg("verbose", f"bool", "false")
         code.arg("timer", "tv::CUDAKernelTimer")
-        code.arg("force_nvrtc", f"bool", "false")
         code.arg("bias", "tv::Tensor")
         code.arg("act_alpha", f"float")
         code.arg("act_beta", f"float")
         code.arg("act_type", f"tv::gemm::Activation")
         code.arg("scale", "tv::Tensor")
         code.arg("output_add", "tv::Tensor")
+        code.arg("mask_filter", "uint32_t", "0xffffffff")
+        code.arg("mask_width", "int", "-1")
+        code.arg("alpha", "float", "1.0")
+        code.arg("beta", "float", "0.0")
+        code.arg("stream_int", f"std::uintptr_t", "0")
+        code.arg("verbose", f"bool", "false")
+        code.arg("force_nvrtc", f"bool", "false")
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
             return code
@@ -1720,6 +1718,12 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 inp_indices,
                 tv::Tensor(),
                 out_indices,
+                tv::Tensor(),
+                tv::CUDAKernelTimer(false),
+                tv::Tensor(),
+                0.0,
+                0.0,
+                tv::gemm::Activation::kNone,
                 {AlgoHint.Fowrard.value},
                 1.0,
                 beta);
@@ -2029,6 +2033,12 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 out_indices,
                 tv::Tensor(),
                 inp_indices,
+                tv::Tensor(),
+                tv::CUDAKernelTimer(false),
+                tv::Tensor(),
+                0.0,
+                0.0,
+                tv::gemm::Activation::kNone,
                 {AlgoHint.BackwardInput.value},
                 1.0,
                 beta);
@@ -2054,6 +2064,12 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 a_inds,
                 b_inds,
                 tv::Tensor(),
+                tv::Tensor(),
+                tv::CUDAKernelTimer(false),
+                tv::Tensor(),
+                0.0,
+                0.0,
+                tv::gemm::Activation::kNone,
                 {AlgoHint.BackwardWeight.value},
                 1.0,
                 beta);
@@ -2210,20 +2226,21 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 mask_output_fwd_splits[j],
                 pair_fwd,
                 false, // reverse_mask
-                mask_ptr[j],
-                -1, // mask_width
-                alpha, beta,
-                stream_int,
                 tv::Tensor(), // workspace
-                false, // verbose
                 timer, 
-                false,
                 bias,
                 act_alpha,
                 act_beta,
                 act_type,
                 scale,
-                output_add);
+                output_add,
+                mask_ptr[j],
+                -1, // mask_width
+                alpha, beta,
+                stream_int,
+                false, // verbose
+                false
+            );
         }}
         // auto end_ev = tv::CUDAEvent();
         // end_ev.record(stream_int);
@@ -2402,13 +2419,20 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 tv::Tensor(), // mask_output
                 pair_bwd,
                 is_subm, // reverse_mask
+                tv::Tensor(), // workspace
+                timer,
+                tv::Tensor(), // bias
+                0.0, // act_alpha
+                0.0, // act_beta
+                tv::gemm::Activation::kNone, // act_type
+                tv::Tensor(), // scale
+                tv::Tensor(), // output_add
                 mask_ptr[j],
                 -1, // mask_width
                 1.0, beta,
                 stream_int,
-                tv::Tensor(), // workspace
                 false, // verbose
-                timer);
+            );
             
             conv_tuner.run_with_tuned_result(
                 wgrad_tune_res,
@@ -2419,13 +2443,20 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 tv::Tensor(), // mask_output
                 pair_fwd,
                 false, // reverse_mask
+                workspace, // workspace
+                timer,
+                tv::Tensor(), // bias
+                0.0, // act_alpha
+                0.0, // act_beta
+                tv::gemm::Activation::kNone, // act_type
+                tv::Tensor(), // scale
+                tv::Tensor(), // output_add
                 mask_ptr[j], // mask_filter
                 mask_width,
                 1.0, 0.0,
                 stream_int, 
-                workspace, // workspace
                 false, // verbose
-                timer);
+            );
         }}
 
         """)

@@ -96,7 +96,7 @@ class ConvTunerSimple:
             need_dynamic_mask: 
         """
         ...
-    def run_with_tuned_result(self, profile_res, op_type: int, inp: Tensor, weight: Tensor, output: Tensor, mask: Tensor, mask_argsort: Tensor, mask_output: Tensor, indices: Tensor, reverse_mask: bool, mask_filter: int = 0xffffffff, mask_width: int = -1, alpha: float = 1.0, beta: float = 0.0, stream_int: int = 0, workspace: Tensor, verbose: bool = False, timer: CUDAKernelTimer, force_nvrtc: bool = False, bias: Tensor, act_alpha: float = 0.0, act_beta: float = 0.0, act_type: Activation, scale: Tensor, output_add: Tensor) -> None: 
+def run_with_tuned_result(self, profile_res, op_type: int, inp: Tensor, weight: Tensor, output: Tensor, mask: Tensor, mask_argsort: Tensor, mask_output: Tensor, indices: Tensor, reverse_mask: bool, workspace: Tensor, timer: CUDAKernelTimer, bias: Tensor, act_alpha: float, act_beta: float, act_type: Activation, scale: Tensor, output_add: Tensor, mask_filter: int = 0xffffffff, mask_width: int = -1, alpha: float = 1.0, beta: float = 0.0, stream_int: int = 0, verbose: bool = False, force_nvrtc: bool = False) -> None: 
         """
         Args:
             profile_res: 
@@ -109,21 +109,21 @@ class ConvTunerSimple:
             mask_output: 
             indices: 
             reverse_mask: 
-            mask_filter: 
-            mask_width: 
-            alpha: 
-            beta: 
-            stream_int: 
             workspace: 
-            verbose: 
             timer: 
-            force_nvrtc: 
             bias: 
             act_alpha: 
             act_beta: 
             act_type: 
             scale: 
             output_add: 
+            mask_filter: 
+            mask_width: 
+            alpha: 
+            beta: 
+            stream_int: 
+            verbose: 
+            force_nvrtc: 
         """
         ...
     def query_workspace_size(self, desp: ConvAlgoDesp, splitk: int, op_type: int, N: int, C: int, K: int, kv: int) -> int: 
