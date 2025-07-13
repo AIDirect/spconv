@@ -687,9 +687,9 @@ class SimpleConv:
                           op_type: ConvOpType,
                           mask_width: int,
                           fp32_accum: Optional[bool] = None,
-                          use_tf32: bool = True,
                           bias: tv.Tensor = tv.Tensor(),
-                          scale: tv.Tensor = tv.Tensor()):
+                          scale: tv.Tensor = tv.Tensor(),
+                          use_tf32: bool = True):
         avail_algos = get_available_algo_str_from_arch(arch)
         finally_algos: List[ConvAlgoDesp] = []
         is_fp16 = inp.dtype == tv.float16 and weight.dtype == tv.float16 # and out.dtype == tv.float16
@@ -855,19 +855,19 @@ class SimpleConv:
                        mask_argsort: tv.Tensor,
                        indices: tv.Tensor,
                        reverse_mask: bool,
+                       mask_output: tv.Tensor = tv.Tensor(),
+                       bias: tv.Tensor = tv.Tensor(),
+                       scale: tv.Tensor = tv.Tensor(),
                        mask_filter: int = 0xffffffff,
                        mask_width: int = -1,
-                       mask_output: tv.Tensor = tv.Tensor(),
                        alpha: float = 1.0,
                        beta: float = 0.0,
                        stream: int = 0,
                        fp32_accum: Optional[bool] = None,
-                       use_tf32: bool = True,
-                       bias: tv.Tensor = tv.Tensor(),
-                       scale: tv.Tensor = tv.Tensor()):
+                       use_tf32: bool = True):
         avail = self.get_all_available(inp, weight, output, layout_i, layout_w,
                                        layout_o, arch, op_type, mask_width,
-                                       fp32_accum, use_tf32, bias, scale)
+                                       fp32_accum, bias, scale, use_tf32)
         inp = inp.clone()
         weight = weight.clone()
         output = output.clone()

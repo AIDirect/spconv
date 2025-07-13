@@ -412,13 +412,15 @@ def _test_impgemm_conv_cuda(subm: bool):
             if SPCONV_CPP_GEMM:
                 avail_desps = CONV_CPP.get_all_available(inp_tv, weight_tv, output_tv, 
                     NHWC.layout_type.value, NHWC.layout_type.value, 
-                    NHWC.layout_type.value, NHWC.interleave, NHWC.interleave, NHWC.interleave, arch, op_type.value, -1, True, False,
-                        use_tf32=SPCONV_ALLOW_TF32, bias=bias if bias is not None else tv.Tensor(), 
-                        scale=scales if scales is not None else tv.Tensor())
+                    NHWC.layout_type.value, NHWC.interleave, NHWC.interleave, NHWC.interleave, arch, op_type.value, -1, True, False, 
+                    bias=bias if bias is not None else tv.Tensor(), 
+                    scale=scales if scales is not None else tv.Tensor(),
+                    use_tf32=SPCONV_ALLOW_TF32)
             else:
-                avail_desps = CONV.get_all_available(inp_tv, weight_tv, output_tv, NHWC, NHWC, NHWC, arch, op_type, -1,
-                        use_tf32=SPCONV_ALLOW_TF32, bias=bias if bias is not None else tv.Tensor(), 
-                        scale=scales if scales is not None else tv.Tensor())
+                avail_desps = CONV.get_all_available(inp_tv, weight_tv, output_tv, NHWC, NHWC, NHWC, arch, op_type, -1, 
+                        bias=bias if bias is not None else tv.Tensor(), 
+                        scale=scales if scales is not None else tv.Tensor(),
+                        use_tf32=SPCONV_ALLOW_TF32)
             if op_type == ConvOpType.kForward and tester.check_act:
                 act = tv.gemm.Activation.ReLU
             else:
@@ -650,9 +652,13 @@ def _test_impgemm_conv_cuda(subm: bool):
                             NHWC.layout_type.value, NHWC.layout_type.value, 
                             NHWC.layout_type.value, NHWC.interleave, NHWC.interleave, NHWC.interleave, arch, 
                             ConvOpType.kBackwardWeight.value, mask_width, True, False,
+                            bias=tv.Tensor(),
+                            scale=tv.Tensor(),
                             use_tf32=SPCONV_ALLOW_TF32)
                     else:
                         avail_desps = CONV.get_all_available(inp_tv, weight_tv, output_tv, NHWC, NHWC, NHWC, arch, ConvOpType.kBackwardWeight, mask_width,
+                            bias=tv.Tensor(),
+                            scale=tv.Tensor(),
                             use_tf32=SPCONV_ALLOW_TF32)
                     for desp in avail_desps:
                         if enable_dy_mask and not desp.dynamic_mask:

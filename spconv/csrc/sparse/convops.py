@@ -1004,11 +1004,9 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         code.arg("mask_width", "int")
         code.arg("auto_fp32_accum", "bool")
         code.arg("fp32_accum", "bool")
+        code.arg("bias", "tv::Tensor")
+        code.arg("scale", "tv::Tensor")
         code.arg("use_tf32", "bool", "true")
-        code.arg("bias", "tv::Tensor", "tv::Tensor()",
-                 "cumm.tensorview.Tensor = Tensor()")
-        code.arg("scale", "tv::Tensor", "tv::Tensor()",
-                 "cumm.tensorview.Tensor = Tensor()")
         code.raw(f"""
         tv::gemm::ConvOpType op_type_cpp = static_cast<tv::gemm::ConvOpType>(op_type);
 
@@ -1153,10 +1151,11 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         code.arg("mask, mask_argsort, indices", "tv::Tensor")
 
         code.arg("reverse_mask", "bool")
+        code.arg("mask_output", "tv::Tensor")
+        code.arg("bias", "tv::Tensor")
+        code.arg("scale", "tv::Tensor")
         code.arg("mask_filter", "uint32_t", "0xffffffff")
         code.arg("mask_width", "int", "-1")
-        code.arg("mask_output", "tv::Tensor", "tv::Tensor()",
-                 "cumm.tensorview.Tensor = Tensor()")
         code.arg("alpha", "float", "1.0")
         code.arg("beta", "float", "0.0")
 
@@ -1165,10 +1164,6 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         code.arg("fp32_accum", "bool", "false")
         code.arg("num_run", "int", "5")
         code.arg("use_tf32", "bool", "true")
-        code.arg("bias", "tv::Tensor", "tv::Tensor()",
-                 "cumm.tensorview.Tensor = Tensor()")
-        code.arg("scale", "tv::Tensor", "tv::Tensor()",
-                 "cumm.tensorview.Tensor = Tensor()")
 
         if CUMM_CPU_ONLY_BUILD:
             code.raw(f"TV_THROW_RT_ERR(\"not implemented for cpu!!!\")")
@@ -1183,8 +1178,8 @@ class ConvTunerSimple(pccm.ParameterizedClass):
         auto avail = get_all_available(inp, weight, output, layout_i, layout_w,
                                        layout_o, interleave_i, interleave_w, interleave_o,
                                        arch, op_type, mask_width,
-                                       auto_fp32_accum, fp32_accum, use_tf32,
-                                       bias, scale);
+                                       auto_fp32_accum, fp32_accum,
+                                       bias, scale, use_tf32);
         inp = inp.clone();
         weight = weight.clone();
         bool need_dynamic_mask = weight.dim(1) > 32;
@@ -2168,17 +2163,17 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 mask_argsort_fwd_splits[0],
                 pair_fwd,
                 false, // reverse_mask
+                tv::Tensor(), // mask_output
+                bias,
+                scale,
                 mask_ptr[0], // mask_filter
                 -1,
-                tv::Tensor(), // mask_output
                 1.0, 0.0,
                 stream_int, 
                 auto_fp32_accum,
                 fp32_accum,
                 5, // num_run
-                use_tf32,
-                bias,
-                scale);
+                use_tf32);
             tune_res = std::get<0>(tune_res_time);
         }}
         float alpha = 1.0;
@@ -2352,9 +2347,11 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 mask_argsort,
                 pair_bwd,
                 is_subm, // reverse_mask
+                tv::Tensor(), // mask_output
+                tv::Tensor(), // bias
+                tv::Tensor(), // scale
                 mask_ptr[0], // mask_filter
                 -1, // mask width
-                tv::Tensor(), // mask_output
                 1.0, 0.0,
                 stream_int, 
                 auto_fp32_accum,
@@ -2376,9 +2373,11 @@ class ConvGemmOps(pccm.ParameterizedClass):
                 mask_argsort_fwd_splits[0],
                 pair_fwd,
                 false, // reverse_mask
+                tv::Tensor(), // mask_output
+                tv::Tensor(), // bias
+                tv::Tensor(), // scale
                 mask_ptr[0], // mask_filter
                 mask_width,
-                tv::Tensor(), // mask_output
                 1.0, 0.0,
                 stream_int, 
                 auto_fp32_accum,

@@ -20,7 +20,7 @@ class ConvTunerSimple:
             arch: 
         """
         ...
-    def get_all_available(self, inp: Tensor, weight: Tensor, out: Tensor, layout_i: int, layout_w: int, layout_o: int, interleave_i: int, interleave_w: int, interleave_o: int, arch: Tuple[int, int], op_type: int, mask_width: int, auto_fp32_accum: bool, fp32_accum: bool, use_tf32: bool = True, bias: Tensor, scale: Tensor) -> List[ConvAlgoDesp]: 
+    def get_all_available(self, inp: Tensor, weight: Tensor, out: Tensor, layout_i: int, layout_w: int, layout_o: int, interleave_i: int, interleave_w: int, interleave_o: int, arch: Tuple[int, int], op_type: int, mask_width: int, auto_fp32_accum: bool, fp32_accum: bool, bias: Tensor, scale: Tensor, use_tf32: bool = True) -> List[ConvAlgoDesp]: 
         """
         Args:
             inp: 
@@ -37,9 +37,9 @@ class ConvTunerSimple:
             mask_width: 
             auto_fp32_accum: 
             fp32_accum: 
-            use_tf32: 
             bias: 
             scale: 
+            use_tf32: 
         """
         ...
     def cached_get_nvrtc_params(self, desp: ConvAlgoDesp, arch: Tuple[int, int], stream_int: int) -> NVRTCParams: 
@@ -50,7 +50,7 @@ class ConvTunerSimple:
             stream_int: 
         """
         ...
-    def tune_and_cache(self, op_type: int, inp: Tensor, weight: Tensor, output: Tensor, layout_i: int, layout_w: int, layout_o: int, interleave_i: int, interleave_w: int, interleave_o: int, arch: Tuple[int, int], mask: Tensor, mask_argsort: Tensor, indices: Tensor, reverse_mask: bool, mask_filter: int = 0xffffffff, mask_width: int = -1, mask_output: Tensor, alpha: float = 1.0, beta: float = 0.0, stream_int: int = 0, auto_fp32_accum: bool = True, fp32_accum: bool = False, num_run: int = 5, use_tf32: bool = True, bias: Tensor, scale: Tensor) -> Tuple[ConvTuneResult, float]: 
+    def tune_and_cache(self, op_type: int, inp: Tensor, weight: Tensor, output: Tensor, layout_i: int, layout_w: int, layout_o: int, interleave_i: int, interleave_w: int, interleave_o: int, arch: Tuple[int, int], mask: Tensor, mask_argsort: Tensor, indices: Tensor, reverse_mask: bool, mask_output: Tensor, bias: Tensor, scale: Tensor, mask_filter: int = 0xffffffff, mask_width: int = -1, alpha: float = 1.0, beta: float = 0.0, stream_int: int = 0, auto_fp32_accum: bool = True, fp32_accum: bool = False, num_run: int = 5, use_tf32: bool = True) -> Tuple[ConvTuneResult, float]: 
         """
         Args:
             op_type: 
