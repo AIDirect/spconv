@@ -53,7 +53,7 @@ REQUIRES_PYTHON = '>=3.9'
 VERSION = None
 
 # What packages are required for this module to be executed?
-REQUIRED = ["pccm>=0.4.16", "ccimport>=0.4.4", "pybind11>=2.6.0", "fire", "numpy", *deps]
+REQUIRED = ["pccm>=0.4.16", "ccimport>=0.4.4", "pybind11>=2.6.0,<3", "fire", "numpy", *deps]
 
 # What packages are optional?
 EXTRAS = {
