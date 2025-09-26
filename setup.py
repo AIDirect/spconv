@@ -144,7 +144,7 @@ class UploadCommand(Command):
 
 
 
-disable_jit = os.getenv("SPCONV_DISABLE_JIT", "1")
+disable_jit = os.getenv("SPCONV_DISABLE_JIT", None)
 
 if disable_jit is not None and disable_jit == "1":
     cmdclass = {
