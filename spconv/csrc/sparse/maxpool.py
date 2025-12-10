@@ -702,6 +702,42 @@ class IndiceMaxPoolCPU(pccm.Class):
         code.arg("in_inds", "tv::Tensor")
         code.arg("stream", "std::uintptr_t", "0")
 
+        code.code_after_include = f"""
+        template <typename T>
+        void atomicAddBwd(T* addr, T val) {{
+            // default implementation for types that might not support atomics easily (e.g. half)
+            // fallback to critical section or unsafe update if necessary,
+            // but for float/double we use CAS.
+            // This is a naive fallback:
+            #pragma omp critical
+            {{
+                *addr += val;
+            }}
+        }}
+
+        template <>
+        void atomicAddBwd(float* addr, float val) {{
+            int* addr_as_int = (int*)addr;
+            int old = *addr_as_int, assumed;
+            do {{
+                assumed = old;
+                float sum = *((float*)&assumed) + val;
+                old = __sync_val_compare_and_swap(addr_as_int, assumed, *((int*)&sum));
+            }} while (assumed != old);
+        }}
+
+        template <>
+        void atomicAddBwd(double* addr, double val) {{
+            unsigned long long int* addr_as_ull = (unsigned long long int*)addr;
+            unsigned long long int old = *addr_as_ull, assumed;
+            do {{
+                assumed = old;
+                double sum = *((double*)&assumed) + val;
+                old = __sync_val_compare_and_swap(addr_as_ull, assumed, *((unsigned long long int*)&sum));
+            }} while (assumed != old);
+        }}
+        """
+
         code.raw(f"""
         int nhot = out_inds.dim(0);
         int num_features = in.dim(1);
@@ -726,7 +762,7 @@ class IndiceMaxPoolCPU(pccm.Class):
                         auto in = in_ptr[j];
                         auto out = out_ptr[j];
                         if (in == out){{
-                            din_ptr[j] = din_ptr[j] + dout_ptr[j];
+                            atomicAddBwd(din_ptr + j, dout_ptr[j]);
                         }}
                     }}
                 }}
