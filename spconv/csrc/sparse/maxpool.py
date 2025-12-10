@@ -628,6 +628,42 @@ class IndiceMaxPoolCPU(pccm.Class):
         code.arg("in_inds", "tv::Tensor")
         code.arg("stream", "std::uintptr_t", "0")
 
+        code.code_after_include = f"""
+        template <typename T>
+        void atomicMax(T* addr, T val) {{
+            // default implementation for types that might not support atomics easily (e.g. half)
+            // fallback to critical section or unsafe update if necessary, 
+            // but for float/double we use CAS.
+            // This is a naive fallback:
+            #pragma omp critical
+            {{
+                if (*addr < val) *addr = val;
+            }}
+        }}
+
+        template <>
+        void atomicMax(float* addr, float val) {{
+            int* addr_as_int = (int*)addr;
+            int old = *addr_as_int, assumed;
+            do {{
+                assumed = old;
+                if (*((float*)&assumed) >= val) break;
+                old = __sync_val_compare_and_swap(addr_as_int, assumed, *((int*)&val));
+            }} while (assumed != old);
+        }}
+
+        template <>
+        void atomicMax(double* addr, double val) {{
+            unsigned long long int* addr_as_int = (unsigned long long int*)addr;
+            unsigned long long int old = *addr_as_int, assumed;
+            do {{
+                assumed = old;
+                if (*((double*)&assumed) >= val) break;
+                old = __sync_val_compare_and_swap(addr_as_int, assumed, *((unsigned long long int*)&val));
+            }} while (assumed != old);
+        }}
+        """
+
         code.raw(f"""
         int nhot = out_inds.dim(0);
         int num_features = in.dim(1);
@@ -645,11 +681,9 @@ class IndiceMaxPoolCPU(pccm.Class):
                     auto in_ptr = in_features + in_idx * num_features;
                     auto out_ptr = out_features + out_idx * num_features;
                     for (int j = 0; j < num_features; ++j) {{
-                        auto in = in_ptr[j];
-                        auto out = out_ptr[j];
-                        if (in > out){{
-                            out_ptr[j] = in;
-                        }}
+                        auto in_val = in_ptr[j];
+                        // atomic update
+                        atomicMax(out_ptr + j, in_val);
                     }}
                 }}
             }});
