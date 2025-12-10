@@ -602,19 +602,28 @@ class IndiceMaxPoolCPU(pccm.Class):
         code.arg("coords", "tv::Tensor")
         code.arg("counts", "tv::Tensor")
 
+        code.code_after_include = f"""
+        int atomicAdd(int* addr, int val) {{
+            return __sync_fetch_and_add(addr, val);
+        }}
+        """
+
         code.raw(f"""
         auto nhot = coords.dim(0);
         auto out_ptr = out_indices.data_ptr<int>();
         auto coord_ptr = coords.data_ptr<const int>();
         auto count_ptr = counts.data_ptr<int>();
         int indices_stride = coords.stride(0);
-        for (int i = 0; i < nhot; ++i){{
-            int batch_idx = coord_ptr[0];
-            if (batch_idx >= 0){{
-                out_ptr[batch_idx * nhot + (count_ptr[batch_idx]++)] = i;
+
+        tv::kernel_1d(out_indices.device(), nhot, [&](int begin, int end, int step){{
+            for (int i = begin; i < end; i += step) {{
+                int batch_idx = coord_ptr[i * indices_stride];
+                if (batch_idx >= 0){{
+                    int old = atomicAdd(count_ptr + batch_idx, 1);
+                    out_ptr[batch_idx * nhot + old] = i;
+                }}
             }}
-            coord_ptr += indices_stride;
-        }}
+        }});
         """)
         return code
 
