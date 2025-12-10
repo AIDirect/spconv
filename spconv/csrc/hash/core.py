@@ -505,22 +505,21 @@ class HashTable(pccm.Class, pccm.pybind.PybindClassMixin):
         """)
         with code.if_("is_cpu"):
             map_name = "cpu_map"
-            # here it's safe to use omp in query.
+            # NOTE: we use sequential loop here instead of tv::kernel_1d_cpu because
+            # tsl::robin_map is not thread-safe for concurrent writes to the same key.
+            # This is consistent with the insert() function which also uses sequential loop.
             for k_type, v_type in self.cpu_map_storage_select("key_itemsize_", "value_itemsize_", map_name, code):
                 code.raw(f"""
                 auto k_ptr = reinterpret_cast<{k_type}*>(keys.raw_data());
                 auto v_ptr = reinterpret_cast<{v_type}*>(values.raw_data());
-                tv::kernel_1d_cpu(keys.device(), N, [&](size_t begin, size_t end, size_t step){{
-                    bool emp;
-                    for (size_t i = begin; i < end; i += step){{
-                        auto iter = {map_name}.find(k_ptr[i]);
-                        emp = iter == {map_name}.end();
-                        if (!emp){{
-                            iter.value() = v_ptr[i];
-                        }}
-                        is_empty_ptr[i] = uint8_t(emp);
+                for (size_t i = 0; i < N; ++i){{
+                    auto iter = {map_name}.find(k_ptr[i]);
+                    bool emp = iter == {map_name}.end();
+                    if (!emp){{
+                        iter.value() = v_ptr[i];
                     }}
-                }});
+                    is_empty_ptr[i] = uint8_t(emp);
+                }}
                 """)
         if not CUMM_CPU_ONLY_BUILD:
             with code.else_():
