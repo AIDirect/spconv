@@ -107,12 +107,10 @@ class GatherCPU(pccm.Class):
             auto indices_data = inds.data_ptr<const int>();
             const T *buffer_data = in.data_ptr<const T>();
             T *features_data = out.data_ptr<T>();
-            const T *buf = in.data_ptr<const T>();
-            T *out_ptr = out.data_ptr<T>();
             tv::kernel_1d(out.device(), nhot, [&](int begin, int end, int step){{
                 for (int i = begin; i < end; i += step) {{
-                    buf = buffer_data + i * channel;
-                    out_ptr = features_data + indices_data[i] * channel;
+                    const T *buf = buffer_data + i * channel;
+                    T *out_ptr = features_data + indices_data[i] * channel;
                     for (int j = 0; j < channel; ++j) {{
                         atomicAdd(out_ptr + j, buf[j]);
                     }}
