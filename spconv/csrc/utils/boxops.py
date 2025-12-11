@@ -17,6 +17,8 @@ from pathlib import Path
 import os 
 from cumm.common import TensorView, TensorViewCPU, TensorViewKernel, ThrustLib
 from spconv.constants import BOOST_ROOT
+from spconv.csrc.sparse.cpu_core import OMPLib
+from cumm.constants import CUMM_CPU_ONLY_BUILD
 
 
 class BoostGeometryLib(pccm.Class):
@@ -30,6 +32,9 @@ class BoxOps(pccm.Class):
     def __init__(self):
         super().__init__()
         self.add_dependency(TensorView)
+        if CUMM_CPU_ONLY_BUILD:
+            self.add_dependency(OMPLib)
+        self.add_include("tensorview/parallel/all.h")
     
     @pccm.pybind.mark
     @pccm.static_function
@@ -210,52 +215,54 @@ class BoxOps(pccm.Class):
             auto standup_iou_r = standup_iou.tview<const DType, 2>();
             auto overlaps_rw = overlaps.tview<DType, 2>();
 
-            namespace bg = boost::geometry;
-            typedef bg::model::point<DType, 2, bg::cs::cartesian> point_t;
-            typedef bg::model::polygon<point_t> polygon_t;
-            polygon_t poly, qpoly;
-            std::vector<polygon_t> poly_inter, poly_union;
-            DType inter_area, union_area;
-            for (int k = 0; k < K; ++k) {{
-                for (int n = 0; n < N; ++n) {{
-                    if (standup_iou_r(n, k) <= standup_thresh)
-                        continue;
-                    bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
-                    bg::append(poly, point_t(box_corners_r(n, 1, 0), box_corners_r(n, 1, 1)));
-                    bg::append(poly, point_t(box_corners_r(n, 2, 0), box_corners_r(n, 2, 1)));
-                    bg::append(poly, point_t(box_corners_r(n, 3, 0), box_corners_r(n, 3, 1)));
-                    bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
-                    bg::append(qpoly,
-                                point_t(qbox_corners_r(k, 0, 0), qbox_corners_r(k, 0, 1)));
-                    bg::append(qpoly,
-                                point_t(qbox_corners_r(k, 1, 0), qbox_corners_r(k, 1, 1)));
-                    bg::append(qpoly,
-                                point_t(qbox_corners_r(k, 2, 0), qbox_corners_r(k, 2, 1)));
-                    bg::append(qpoly,
-                                point_t(qbox_corners_r(k, 3, 0), qbox_corners_r(k, 3, 1)));
-                    bg::append(qpoly,
-                                point_t(qbox_corners_r(k, 0, 0), qbox_corners_r(k, 0, 1)));
+            tv::kernel_1d(box_corners.device(), K, [&](int begin, int end, int step){{
+                namespace bg = boost::geometry;
+                typedef bg::model::point<DType, 2, bg::cs::cartesian> point_t;
+                typedef bg::model::polygon<point_t> polygon_t;
+                polygon_t poly, qpoly;
+                std::vector<polygon_t> poly_inter, poly_union;
+                DType inter_area, union_area;
+                for (int k = begin; k < end; k += step) {{
+                    for (int n = 0; n < N; ++n) {{
+                        if (standup_iou_r(n, k) <= standup_thresh)
+                            continue;
+                        bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
+                        bg::append(poly, point_t(box_corners_r(n, 1, 0), box_corners_r(n, 1, 1)));
+                        bg::append(poly, point_t(box_corners_r(n, 2, 0), box_corners_r(n, 2, 1)));
+                        bg::append(poly, point_t(box_corners_r(n, 3, 0), box_corners_r(n, 3, 1)));
+                        bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
+                        bg::append(qpoly,
+                                    point_t(qbox_corners_r(k, 0, 0), qbox_corners_r(k, 0, 1)));
+                        bg::append(qpoly,
+                                    point_t(qbox_corners_r(k, 1, 0), qbox_corners_r(k, 1, 1)));
+                        bg::append(qpoly,
+                                    point_t(qbox_corners_r(k, 2, 0), qbox_corners_r(k, 2, 1)));
+                        bg::append(qpoly,
+                                    point_t(qbox_corners_r(k, 3, 0), qbox_corners_r(k, 3, 1)));
+                        bg::append(qpoly,
+                                    point_t(qbox_corners_r(k, 0, 0), qbox_corners_r(k, 0, 1)));
 
-                    bg::intersection(poly, qpoly, poly_inter);
+                        bg::intersection(poly, qpoly, poly_inter);
 
-                    if (!poly_inter.empty()) {{
-                        inter_area = bg::area(poly_inter.front());
-                        if (inter_only){{
-                            overlaps_rw(n, k) = inter_area;
-                        }}else{{
-                            bg::union_(poly, qpoly, poly_union);
-                            if (!poly_union.empty()) {{
-                                union_area = bg::area(poly_union.front());
-                                overlaps_rw(n, k) = inter_area / union_area;
+                        if (!poly_inter.empty()) {{
+                            inter_area = bg::area(poly_inter.front());
+                            if (inter_only){{
+                                overlaps_rw(n, k) = inter_area;
+                            }}else{{
+                                bg::union_(poly, qpoly, poly_union);
+                                if (!poly_union.empty()) {{
+                                    union_area = bg::area(poly_union.front());
+                                    overlaps_rw(n, k) = inter_area / union_area;
+                                }}
+                                poly_union.clear();
                             }}
-                            poly_union.clear();
                         }}
+                        poly.clear();
+                        qpoly.clear();
+                        poly_inter.clear();
                     }}
-                    poly.clear();
-                    qpoly.clear();
-                    poly_inter.clear();
                 }}
-            }}
+            }});
         }});
         return;
         """)
@@ -286,49 +293,51 @@ class BoxOps(pccm.Class):
 
             auto overlaps_rw = overlaps.tview<DType, 1>();
 
-            namespace bg = boost::geometry;
-            typedef bg::model::point<DType, 2, bg::cs::cartesian> point_t;
-            typedef bg::model::polygon<point_t> polygon_t;
-            polygon_t poly, qpoly;
-            std::vector<polygon_t> poly_inter, poly_union;
-            DType inter_area, union_area;
+            tv::kernel_1d(box_corners.device(), N, [&](int begin, int end, int step){{
+                namespace bg = boost::geometry;
+                typedef bg::model::point<DType, 2, bg::cs::cartesian> point_t;
+                typedef bg::model::polygon<point_t> polygon_t;
+                polygon_t poly, qpoly;
+                std::vector<polygon_t> poly_inter, poly_union;
+                DType inter_area, union_area;
 
-            for (int n = 0; n < N; ++n) {{
-                bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
-                bg::append(poly, point_t(box_corners_r(n, 1, 0), box_corners_r(n, 1, 1)));
-                bg::append(poly, point_t(box_corners_r(n, 2, 0), box_corners_r(n, 2, 1)));
-                bg::append(poly, point_t(box_corners_r(n, 3, 0), box_corners_r(n, 3, 1)));
-                bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
-                bg::append(qpoly,
-                            point_t(qbox_corners_r(n, 0, 0), qbox_corners_r(n, 0, 1)));
-                bg::append(qpoly,
-                            point_t(qbox_corners_r(n, 1, 0), qbox_corners_r(n, 1, 1)));
-                bg::append(qpoly,
-                            point_t(qbox_corners_r(n, 2, 0), qbox_corners_r(n, 2, 1)));
-                bg::append(qpoly,
-                            point_t(qbox_corners_r(n, 3, 0), qbox_corners_r(n, 3, 1)));
-                bg::append(qpoly,
-                            point_t(qbox_corners_r(n, 0, 0), qbox_corners_r(n, 0, 1)));
+                for (int n = begin; n < end; n += step) {{
+                    bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
+                    bg::append(poly, point_t(box_corners_r(n, 1, 0), box_corners_r(n, 1, 1)));
+                    bg::append(poly, point_t(box_corners_r(n, 2, 0), box_corners_r(n, 2, 1)));
+                    bg::append(poly, point_t(box_corners_r(n, 3, 0), box_corners_r(n, 3, 1)));
+                    bg::append(poly, point_t(box_corners_r(n, 0, 0), box_corners_r(n, 0, 1)));
+                    bg::append(qpoly,
+                                point_t(qbox_corners_r(n, 0, 0), qbox_corners_r(n, 0, 1)));
+                    bg::append(qpoly,
+                                point_t(qbox_corners_r(n, 1, 0), qbox_corners_r(n, 1, 1)));
+                    bg::append(qpoly,
+                                point_t(qbox_corners_r(n, 2, 0), qbox_corners_r(n, 2, 1)));
+                    bg::append(qpoly,
+                                point_t(qbox_corners_r(n, 3, 0), qbox_corners_r(n, 3, 1)));
+                    bg::append(qpoly,
+                                point_t(qbox_corners_r(n, 0, 0), qbox_corners_r(n, 0, 1)));
 
-                bg::intersection(poly, qpoly, poly_inter);
+                    bg::intersection(poly, qpoly, poly_inter);
 
-                if (!poly_inter.empty()) {{
-                    inter_area = bg::area(poly_inter.front());
-                    if (inter_only){{
-                        overlaps_rw(n) = inter_area;
-                    }}else{{
-                        bg::union_(poly, qpoly, poly_union);
-                        if (!poly_union.empty()) {{
-                            union_area = bg::area(poly_union.front());
-                            overlaps_rw(n) = inter_area / union_area;
+                    if (!poly_inter.empty()) {{
+                        inter_area = bg::area(poly_inter.front());
+                        if (inter_only){{
+                            overlaps_rw(n) = inter_area;
+                        }}else{{
+                            bg::union_(poly, qpoly, poly_union);
+                            if (!poly_union.empty()) {{
+                                union_area = bg::area(poly_union.front());
+                                overlaps_rw(n) = inter_area / union_area;
+                            }}
+                            poly_union.clear();
                         }}
-                        poly_union.clear();
                     }}
+                    poly.clear();
+                    qpoly.clear();
+                    poly_inter.clear();
                 }}
-                poly.clear();
-                qpoly.clear();
-                poly_inter.clear();
-            }}
+            }});
         }});
         return;
         """)

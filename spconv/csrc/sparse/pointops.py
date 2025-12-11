@@ -22,6 +22,8 @@ from cumm.gemm import codeops
 from typing import List
 from cumm.conv.params import ConvProblem
 import numpy as np
+from spconv.csrc.sparse.cpu_core import OMPLib
+from cumm.constants import CUMM_CPU_ONLY_BUILD
 
 
 class Point2VoxelCommon(pccm.ParameterizedClass):
@@ -494,6 +496,9 @@ class Point2VoxelCPU(pccm.ParameterizedClass, pccm.pybind.PybindClassMixin):
     def __init__(self, dtype: dtypes.DType, ndim: int, zyx: bool = True):
         super().__init__()
         self.add_dependency(TensorView)
+        if CUMM_CPU_ONLY_BUILD:
+            self.add_dependency(OMPLib)
+        self.add_include("tensorview/parallel/all.h")
         layout = TensorGeneric(ndim, False)
         self.add_param_class("layout_ns", layout, "Layout")
         self.dtype = dtype
@@ -596,6 +601,16 @@ class Point2VoxelCPU(pccm.ParameterizedClass, pccm.pybind.PybindClassMixin):
 
         code.arg("clear_voxels", "bool", "true")
 
+        code.code_after_include = f"""
+        int atomicAdd(int* addr, int val) {{
+            return __sync_fetch_and_add(addr, val);
+        }}
+
+        int atomicCAS(int* addr, int compare, int val) {{
+            return __sync_val_compare_and_swap(addr, compare, val);
+        }}
+        """
+
         point_xyz = f"{self.ndim - 1} - j"
         if not self.zyx:
             point_xyz = f"j"
@@ -622,69 +637,100 @@ class Point2VoxelCPU(pccm.ParameterizedClass, pccm.pybind.PybindClassMixin):
             int coor[{self.ndim}];
             auto coor_to_voxelidx_rw = densehashdata.tview<int, {self.ndim}>();
             int voxelidx, num;
-            bool failed;
+            
             int voxel_num = 0;
-            for (int i = 0; i < N; ++i) {{
-                failed = false;
-                for (int j = 0; j < {self.ndim}; ++j) {{
-                    c = floor((points_rw(i, {point_xyz}) - coors_range[j]) / vsize[j]);
-                    if ((c < 0 || c >= grid_size[j])) {{
-                        failed = true;
-                        break;
+            tv::kernel_1d(points.device(), N, [&](int begin, int end, int step){{
+                int coor[{self.ndim}];
+                int voxelidx, num;
+                bool failed;
+                for (int i = begin; i < end; i += step) {{
+                    failed = false;
+                    for (int j = 0; j < {self.ndim}; ++j) {{
+                        int c = floor((points_rw(i, {point_xyz}) - coors_range[j]) / vsize[j]);
+                        if ((c < 0 || c >= grid_size[j])) {{
+                            failed = true;
+                            break;
+                        }}
+                        coor[j] = c;
                     }}
-                    coor[j] = c;
-                }}
-                if (failed){{
-                    points_voxel_id_ptr[i] = -1;
-                    continue;
-                }}
-                voxelidx = coor_to_voxelidx_rw({codeops.unpack("coor", range(self.ndim))});
-                
-                if (voxelidx == -1) {{
-                    voxelidx = voxel_num;
-                    if (voxel_num >= max_num_voxels){{
+                    if (failed){{
                         points_voxel_id_ptr[i] = -1;
                         continue;
                     }}
-                    voxel_num += 1;
-                    coor_to_voxelidx_rw({codeops.unpack("coor", range(self.ndim))}) = voxelidx;
-                    for (int k = 0; k < {self.ndim}; ++k) {{
-                        coors_rw(voxelidx, k) = coor[k];
-                    }}
-                }}
-                points_voxel_id_ptr[i] = voxelidx;
-                num = num_points_per_voxel_rw(voxelidx);
-                if (num < max_num_points_per_voxel) {{
-                    // voxel_point_mask_rw(voxelidx, num) = {self.dtype}(1);
-                    for (int k = 0; k < num_features; ++k) {{
-                        voxels_rw(voxelidx, num, k) = points_rw(i, k);
-                    }}
-                    num_points_per_voxel_rw(voxelidx) += 1;
-                }}
-            }}
-            std::vector<{self.dtype}> mean_value(num_features);
-            for (int i = 0; i < voxel_num; ++i) {{
-                coor_to_voxelidx_rw({codeops.unpack("coors_rw", range(self.ndim), left="(i, ", right=")")}) = -1;
-                if TV_IF_CONSTEXPR ({pccm.boolean(mean)}){{
-                    num = num_points_per_voxel_rw(i);
-                    if (num > 0){{
-                        mean_value.clear();
-                        for (int j = 0; j < num; ++j) {{
-                            for (int k = 0; k < num_features; ++k) {{
-                                mean_value[k] += voxels_rw(i, j, k);
+                    voxelidx = coor_to_voxelidx_rw({codeops.unpack("coor", range(self.ndim))});
+                    
+                    if (voxelidx == -1) {{
+                        int* grid_ptr = &coor_to_voxelidx_rw({codeops.unpack("coor", range(self.ndim))});
+                        int old_val;
+                        while (true) {{
+                            old_val = *(volatile int*)grid_ptr;
+                            if (old_val >= 0) {{
+                                voxelidx = old_val;
+                                break;
+                            }}
+                            if (old_val == -1) {{
+                                if (atomicCAS(grid_ptr, -1, -2) == -1) {{
+                                    if (voxel_num < max_num_voxels) {{
+                                        int cur_vox = atomicAdd(&voxel_num, 1);
+                                        if (cur_vox < max_num_voxels) {{
+                                            voxelidx = cur_vox;
+                                            for (int k = 0; k < {self.ndim}; ++k) {{
+                                                coors_rw(voxelidx, k) = coor[k];
+                                            }}
+                                            atomicCAS(grid_ptr, -2, voxelidx);
+                                        }} else {{
+                                            voxelidx = -1;
+                                            atomicCAS(grid_ptr, -2, -1);
+                                        }}
+                                    }} else {{
+                                        voxelidx = -1;
+                                        atomicCAS(grid_ptr, -2, -1);
+                                    }}
+                                    break;
+                                }}
                             }}
                         }}
-                        for (int k = 0; k < num_features; ++k){{
-                            mean_value[k] /= num;
+                        if (voxelidx == -1) {{
+                            points_voxel_id_ptr[i] = -1;
+                            continue;
                         }}
-                        for (int j = num; j < max_num_points_per_voxel; ++j) {{
-                            for (int k = 0; k < num_features; ++k) {{
-                                voxels_rw(i, j, k) = mean_value[k];
+                    }}
+                    points_voxel_id_ptr[i] = voxelidx;
+                    int old_num = atomicAdd(&num_points_per_voxel_rw(voxelidx), 1);
+                    if (old_num < max_num_points_per_voxel) {{
+                        for (int k = 0; k < num_features; ++k) {{
+                            voxels_rw(voxelidx, old_num, k) = points_rw(i, k);
+                        }}
+                    }}
+                }}
+            }});
+            
+            tv::kernel_1d(points.device(), voxel_num, [&](int begin, int end, int step){{
+                std::vector<{self.dtype}> mean_value(num_features);
+                for (int i = begin; i < end; i += step) {{
+                    coor_to_voxelidx_rw({codeops.unpack("coors_rw", range(self.ndim), left="(i, ", right=")")}) = -1;
+                    if TV_IF_CONSTEXPR ({pccm.boolean(mean)}){{
+                        int num = num_points_per_voxel_rw(i);
+                        num = num > max_num_points_per_voxel ? int(max_num_points_per_voxel) : num;
+                        if (num > 0){{
+                            mean_value.assign(num_features, 0);
+                            for (int j = 0; j < num; ++j) {{
+                                for (int k = 0; k < num_features; ++k) {{
+                                    mean_value[k] += voxels_rw(i, j, k);
+                                }}
+                            }}
+                            for (int k = 0; k < num_features; ++k){{
+                                mean_value[k] /= num;
+                            }}
+                            for (int j = num; j < max_num_points_per_voxel; ++j) {{
+                                for (int k = 0; k < num_features; ++k) {{
+                                    voxels_rw(i, j, k) = mean_value[k];
+                                }}
                             }}
                         }}
                     }}
                 }}
-            }}
+            }});
             res_voxel_num = voxel_num;
         }});
         return std::make_tuple(voxels.slice_first_axis(0, res_voxel_num), 

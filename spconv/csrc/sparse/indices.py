@@ -22,6 +22,8 @@ from cumm.gemm import codeops
 from typing import List
 from cumm.conv.params import ConvProblem
 import numpy as np
+from spconv.csrc.sparse.cpu_core import OMPLib
+from cumm.constants import CUMM_CPU_ONLY_BUILD
 
 
 class CudaCommonKernel(pccm.ParameterizedClass):
@@ -1623,6 +1625,9 @@ class SparseConvIndicesCPU(pccm.ParameterizedClass):
     def __init__(self, problem: ConvProblem, dtype_indices: dtypes.DType):
         super().__init__()
         self.add_dependency(TensorView)
+        if CUMM_CPU_ONLY_BUILD:
+            self.add_dependency(OMPLib)
+        self.add_include("tensorview/parallel/all.h")
         self.add_include("unordered_map")
         self.loc_iter = ConvOutLocIter(problem)
         self.loc_iter_64 = ConvOutLocIter(problem, True)
@@ -1644,6 +1649,14 @@ class SparseConvIndicesCPU(pccm.ParameterizedClass):
         code.arg("batch_size", "int")
         code.arg("input_dims", f"tv::array<int, {self.ndim}>")
         code.arg("ksize, dilation", f"tv::array<int, {self.ndim}>")
+
+        code.code_after_include = f"""
+        template <typename T>
+        T atomicAdd(T* addr, T val) {{
+            return __sync_fetch_and_add(addr, val);
+        }}
+        """
+
         code.raw(f"""
         tv::array<int, {self.ndim}> stride, padding;
         for (int i = 0; i < {self.ndim}; ++i){{
@@ -1676,28 +1689,32 @@ class SparseConvIndicesCPU(pccm.ParameterizedClass):
                 int filter_offset_mul_indices_pair_size = filter_offset * indices_pair_size;
                 int filter_offset_mul_indices_pair_size_1 = (kv - 1 - filter_offset) * indices_pair_size;
                 if (filter_offset == kv / 2){{
-                    for (int i = 0; i < indice_in_num; ++i){{
-                        indice_pairs_ptr[filter_offset_mul_indices_pair_size + i] = i;
-                        indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size + i] = i;
-                    }}
+                    tv::kernel_1d(indices.device(), indice_in_num, [&](int begin, int end, int step){{
+                        for (int i = begin; i < end; i += step){{
+                            indice_pairs_ptr[filter_offset_mul_indices_pair_size + i] = i;
+                            indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size + i] = i;
+                        }}
+                    }});
                 }}else{{
                     indices_ptr = indices.data_ptr<const {self.dtype_indices}>();
                     auto indice_num_per_loc_ptr = indice_num_per_loc.data_ptr<{self.dtype_indices}>() + filter_offset;
-                    for (int i = 0; i < indice_in_num; ++i){{
-                        tv::array<int, {self.ndim + 1}> npq_offset;
-                        if (loc_iter.query_npq_no_stride(indices_ptr, npq_offset)){{
-                            auto index = loc_iter.layout_npq(npq_offset);
-                            auto iter = hash.find(index);
-                            if (iter != hash.end()){{
-                                auto old_num = indice_num_per_loc_ptr[0]++;
-                                indice_pairs_ptr[filter_offset_mul_indices_pair_size + old_num] = i;
-                                indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size + old_num] = iter->second;
-                                indice_pairs_ptr[filter_offset_mul_indices_pair_size_1 + old_num] = iter->second;
-                                indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size_1 + old_num] = i;
+                    tv::kernel_1d(indices.device(), indice_in_num, [&](int begin, int end, int step){{
+                        for (int i = begin; i < end; i += step){{
+                            tv::array<int, {self.ndim + 1}> npq_offset;
+                            auto cur_indices_ptr = indices_ptr + i * {self.ndim + 1};
+                            if (loc_iter.query_npq_no_stride(cur_indices_ptr, npq_offset)){{
+                                auto index = loc_iter.layout_npq(npq_offset);
+                                auto iter = hash.find(index);
+                                if (iter != hash.end()){{
+                                    auto old_num = atomicAdd(indice_num_per_loc_ptr, {self.dtype_indices}(1));
+                                    indice_pairs_ptr[filter_offset_mul_indices_pair_size + old_num] = i;
+                                    indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size + old_num] = iter->second;
+                                    indice_pairs_ptr[filter_offset_mul_indices_pair_size_1 + old_num] = iter->second;
+                                    indice_pairs_ptr[indices_pair_size_mul_RS + filter_offset_mul_indices_pair_size_1 + old_num] = i;
+                                }}
                             }}
                         }}
-                        indices_ptr += {self.ndim + 1};
-                    }}
+                    }});
                 }}
                 ++loc_iter;
             }}
