@@ -61,6 +61,43 @@ class GatherCPU(pccm.Class):
         code.arg("out", "tv::Tensor")
         code.arg("in", "tv::Tensor")
         code.arg("inds", "tv::Tensor")
+
+        code.code_after_include = f"""
+        template <typename T>
+        void atomicAdd(T* addr, T val) {{
+            // default implementation for types that might not support atomics easily (e.g. half)
+            // fallback to critical section or unsafe update if necessary,
+            // but for float/double we use CAS.
+            // This is a naive fallback:
+            #pragma omp critical
+            {{
+                *addr += val;
+            }}
+        }}
+
+        template <>
+        void atomicAdd(float* addr, float val) {{
+            int* addr_as_int = (int*)addr;
+            int old = *addr_as_int, assumed;
+            do {{
+                assumed = old;
+                float sum = *((float*)&assumed) + val;
+                old = __sync_val_compare_and_swap(addr_as_int, assumed, *((int*)&sum));
+            }} while (assumed != old);
+        }}
+
+        template <>
+        void atomicAdd(double* addr, double val) {{
+            unsigned long long int* addr_as_ull = (unsigned long long int*)addr;
+            unsigned long long int old = *addr_as_ull, assumed;
+            do {{
+                assumed = old;
+                double sum = *((double*)&assumed) + val;
+                old = __sync_val_compare_and_swap(addr_as_ull, assumed, *((unsigned long long int*)&sum));
+            }} while (assumed != old);
+        }}
+        """
+
         code.raw(f"""
         // tv::check_shape(inds, {{in.dim(0)}});
         auto nhot = inds.dim(0);
@@ -70,14 +107,12 @@ class GatherCPU(pccm.Class):
             auto indices_data = inds.data_ptr<const int>();
             const T *buffer_data = in.data_ptr<const T>();
             T *features_data = out.data_ptr<T>();
-            const T *buf = in.data_ptr<const T>();
-            T *out_ptr = out.data_ptr<T>();
             tv::kernel_1d(out.device(), nhot, [&](int begin, int end, int step){{
                 for (int i = begin; i < end; i += step) {{
-                    buf = buffer_data + i * channel;
-                    out_ptr = features_data + indices_data[i] * channel;
+                    const T *buf = buffer_data + i * channel;
+                    T *out_ptr = features_data + indices_data[i] * channel;
                     for (int j = 0; j < channel; ++j) {{
-                        out_ptr[j] = out_ptr[j] + buf[j];
+                        atomicAdd(out_ptr + j, buf[j]);
                     }}
                 }}
             }});
